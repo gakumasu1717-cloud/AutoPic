@@ -30,6 +30,12 @@ const _rerollInProgress = new Set();
 /** 메시지별 영구 MutationObserver 맵 — key: mesId(string), value: MutationObserver */
 const _permanentObservers = new Map();
 
+/** 리롤 가드 해제 타임아웃 (ms) - 다른 확장의 렌더링이 완료될 충분한 시간 */
+const REROLL_GUARD_TIMEOUT_MS = 2000;
+
+/** MutationObserver 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
+const MUTATION_DEBOUNCE_MS = 300;
+
 /**
  * HTML 속성 값 안전 탈출
  */
@@ -1471,7 +1477,7 @@ async function handleReroll(mesId, currentPrompt) {
                         // 가드 해제 (충분한 딜레이 후)
                         setTimeout(() => {
                             _rerollInProgress.delete(String(mesId));
-                        }, 2000);
+                        }, REROLL_GUARD_TIMEOUT_MS);
                     });
 
                     toastr.success("이미지가 교체되었습니다.");
@@ -1593,7 +1599,7 @@ eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
                     
                     setTimeout(() => {
                         _rerollInProgress.delete(String(currentIdx));
-                    }, 2000);
+                    }, REROLL_GUARD_TIMEOUT_MS);
                 });
                 
                 toastr.success(`총 ${total}개의 이미지 생성 및 저장 완료!`);
@@ -1720,7 +1726,7 @@ function installPermanentObserver(mesId) {
                 addMobileToggleToMessage(mesId);
                 attachSwipeRerollListeners(mesId);
             }
-        }, 300);
+        }, MUTATION_DEBOUNCE_MS);
     });
     
     observer.observe(mesText, { childList: true, subtree: true });
