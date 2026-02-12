@@ -30,28 +30,28 @@ const _rerollInProgress = new Set();
 /** 메시지별 영구 MutationObserver 맵 — key: mesId(string), value: MutationObserver */
 const _permanentObservers = new Map();
 
-/** 리롤 가드 해제 타임아웃 (ms) - 다른 확장의 렌더링이 완료될 충분한 시간 */
+/** Reroll guard timeout (ms) - sufficient time for other extensions to complete rendering */
 const REROLL_GUARD_TIMEOUT_MS = 2000;
 
-/** MutationObserver 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
+/** MutationObserver debounce time (ms) - wait time after DOM change detection */
 const MUTATION_DEBOUNCE_MS = 300;
 
-/** 초기화 시 한 번에 처리할 메시지 개수 - UI 블로킹 방지 */
+/** Number of messages to process in each batch during initialization - prevents UI blocking */
 const INIT_BATCH_SIZE = 50;
 
-/** 초기화 배치 간 딜레이 (ms) - 성능 최적화 */
+/** Delay between batches during initialization (ms) - performance optimization */
 const INIT_BATCH_DELAY_MS = 100;
 
-/** 배치 내 각 메시지 처리 간 딜레이 (ms) - UI 응답성 유지 */
+/** Delay between processing each message within a batch (ms) - maintains UI responsiveness */
 const INIT_MESSAGE_DELAY_MS = 5;
 
-/** IntersectionObserver threshold - 요소가 몇 % 보일 때 트리거할지 */
+/** IntersectionObserver threshold - percentage of element visibility to trigger */
 const SCROLL_OBSERVER_THRESHOLD = 0.1;
 
-/** IntersectionObserver rootMargin - viewport 확장 영역 */
+/** IntersectionObserver rootMargin - viewport expansion area */
 const SCROLL_OBSERVER_ROOT_MARGIN = '50px';
 
-/** 전역 리롤 가드 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
+/** Global reroll guard debounce time (ms) - wait time after DOM change detection */
 const GLOBAL_GUARD_DEBOUNCE_MS = 150;
 
 /**
@@ -1870,6 +1870,7 @@ const initializeAllTagControls = () => {
 function installScrollRerollAttacher() {
     let intersectionObserver = null;
     const observedElements = new Set();
+    const processedMessages = new Set();
     
     // Create IntersectionObserver instance
     const createObserver = () => {
@@ -1879,9 +1880,21 @@ function installScrollRerollAttacher() {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const $mes = $(entry.target);
-                    const mesId = $mes.attr('mesid');
+                    const mesIdStr = $mes.attr('mesid');
                     
-                    if (!mesId) return;
+                    if (!mesIdStr) return;
+                    
+                    const mesId = parseInt(mesIdStr, 10);
+                    if (isNaN(mesId)) return;
+                    
+                    // Skip if already processed and nothing is missing
+                    if (processedMessages.has(mesId)) {
+                        const hasAllControls = 
+                            $mes.find('.image-reroll-button').length > 0 &&
+                            $mes.find('.autopic-tag-controls').length > 0 &&
+                            $mes.find('.mobile-ui-toggle').length > 0;
+                        if (hasAllControls) return;
+                    }
                     
                     // Check if message has images
                     const hasImages = $mes.find('.mes_img_controls, .mes_text img').length > 0;
@@ -1905,6 +1918,9 @@ function installScrollRerollAttacher() {
                         if (!hasMobileToggle) {
                             addMobileToggleToMessage(mesId);
                         }
+                        
+                        // Mark as processed
+                        processedMessages.add(mesId);
                     }
                 }
             });
@@ -1990,11 +2006,14 @@ function installGlobalRerollGuard() {
             // Attach reroll button if missing
             if (!$controls.find('.image-reroll-button').length) {
                 const $mes = $controls.closest('.mes');
-                const mesId = $mes.attr('mesid');
+                const mesIdStr = $mes.attr('mesid');
                 
-                if (mesId) {
-                    addRerollButtonToMessage(mesId);
-                    attachSwipeRerollListeners(mesId);
+                if (mesIdStr) {
+                    const mesId = parseInt(mesIdStr, 10);
+                    if (!isNaN(mesId)) {
+                        addRerollButtonToMessage(mesId);
+                        attachSwipeRerollListeners(mesId);
+                    }
                 }
             }
         });
