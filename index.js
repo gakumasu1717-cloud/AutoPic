@@ -1062,10 +1062,13 @@ $(function () {
                     message.extra.title = match[1];
                 }
             }
-            addRerollButtonToMessage(mesId);
-            addMobileToggleToMessage(mesId);
-            attachSwipeRerollListeners(mesId);
-            setTimeout(() => attachTagControls(mesId), 150);
+            // 비동기 마크다운 렌더링 완료를 기다린 후 컨트롤 부착
+            setTimeout(() => {
+                addRerollButtonToMessage(mesId);
+                addMobileToggleToMessage(mesId);
+                attachSwipeRerollListeners(mesId);
+                attachTagControls(mesId);
+            }, 350);
         });
 
         eventSource.on(event_types.CHAT_CHANGED, () => {
@@ -1437,13 +1440,22 @@ async function handleReroll(mesId, currentPrompt) {
                     // 3. 다른 확장을 위해 이벤트는 유지 (fire-and-forget)
                     eventSource.emit(event_types.MESSAGE_UPDATED, mesId);
 
-                    // 4. [핵심] DOM 교체가 완료된 직후, 다음 페인트 전에 컨트롤 직접 부착
-                    requestAnimationFrame(() => {
+                    // 4. [핵심] updateMessageBlock 내부의 비동기 마크다운 렌더링이
+                    //    완료된 뒤에 컨트롤을 부착해야 하므로, 여러 타이밍에 시도
+                    const reattachControls = () => {
                         attachTagControls(mesId);
                         addRerollButtonToMessage(mesId);
                         addMobileToggleToMessage(mesId);
                         attachSwipeRerollListeners(mesId);
+                    };
+                    // 즉시 시도 (동기 렌더링인 경우)
+                    requestAnimationFrame(() => {
+                        reattachControls();
+                        // 이중 rAF: 비동기 렌더링이 다음 프레임까지 걸리는 경우
+                        requestAnimationFrame(() => reattachControls());
                     });
+                    // 안전장치: 마크다운 렌더러가 느린 경우
+                    setTimeout(() => reattachControls(), 300);
 
                     toastr.success("이미지가 교체되었습니다.");
                 } else {
@@ -1550,13 +1562,17 @@ eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
                 
                 eventSource.emit(event_types.MESSAGE_UPDATED, currentIdx);
                 
-                // DOM 교체 후 다음 페인트 전에 컨트롤 직접 부착
-                requestAnimationFrame(() => {
+                const reattachControls = () => {
                     attachTagControls(currentIdx);
                     addRerollButtonToMessage(currentIdx);
                     addMobileToggleToMessage(currentIdx);
                     attachSwipeRerollListeners(currentIdx);
+                };
+                requestAnimationFrame(() => {
+                    reattachControls();
+                    requestAnimationFrame(() => reattachControls());
                 });
+                setTimeout(() => reattachControls(), 300);
                 
                 toastr.success(`총 ${total}개의 이미지 생성 및 저장 완료!`);
             }
