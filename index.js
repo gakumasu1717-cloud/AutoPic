@@ -1601,6 +1601,27 @@ async function attachTagControls(mesId) {
 
     const $mesBlock = $(`.mes[mesid="${mesId}"]`);
     const $images = $mesBlock.find('.mes_text img');
+    if ($images.length === 0) return;
+
+    // message.mes 원본에서 <img> 태그의 src와 title을 추출하여 매칭 맵 생성
+    // (updateMessageBlock 후 DOM에서 data-autopic-id 등 커스텀 속성이 strip될 수 있으므로
+    //  src 기반으로 매칭하는 것이 안전)
+    const imgTagRegex = /<img[^>]*src="([^"]*)"[^>]*>/gi;
+    const titleExtractRegex = /title="([^"]*)"/i;
+    const autopicIdExtractRegex = /data-autopic-id="([^"]*)"/i;
+    const mesImgMap = new Map(); // src → { title, autopicId }
+
+    let imgMatch;
+    while ((imgMatch = imgTagRegex.exec(message.mes)) !== null) {
+        const fullTag = imgMatch[0];
+        const src = imgMatch[1];
+        const titleMatch = fullTag.match(titleExtractRegex);
+        const idMatch = fullTag.match(autopicIdExtractRegex);
+        mesImgMap.set(src, {
+            title: titleMatch ? titleMatch[1] : "",
+            autopicId: idMatch ? idMatch[1] : null,
+        });
+    }
 
     $images.each(function() {
         const $img = $(this);
@@ -1621,19 +1642,37 @@ async function attachTagControls(mesId) {
         const title = $img.attr('title') || "";
         const hasAutopicId = $img.attr('data-autopic-id');
 
-        const isAutopicImg = hasAutopicId || 
+        // 판별 기준 (OR 조건, 하나만 충족해도 AutoPic 이미지로 판정):
+        // 1) DOM에 data-autopic-id 속성이 살아있음
+        // 2) message.mes 원본에 같은 src를 가진 <img> 태그가 존재함
+        // 3) 기존 휴리스틱 (영어 키워드 기반 - fallback)
+        const mesEntry = mesImgMap.get(src);
+        const isInMessageMes = !!mesEntry;
+
+        const isAutopicImg = hasAutopicId || isInMessageMes || 
                              (title && looksLikeAutopicImage(title));
 
         if (!isAutopicImg || !src) return;
 
-        // data-autopic-id가 없으면 부여
+        // 원본에서 title 복구 (DOM에서 strip됐을 수 있으므로)
+        const effectiveTitle = title || (mesEntry ? mesEntry.title : "");
+
+        // data-autopic-id 복구/부여
         if (!hasAutopicId) {
-            $img.attr('data-autopic-id', `tag-recovered-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+            const recoveredId = (mesEntry && mesEntry.autopicId) 
+                ? mesEntry.autopicId 
+                : `tag-recovered-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            $img.attr('data-autopic-id', recoveredId);
+        }
+
+        // title이 DOM에서 사라졌으면 복구
+        if (!title && effectiveTitle) {
+            $img.attr('title', effectiveTitle);
         }
 
         // 래퍼 + 컨트롤 생성
         $img.wrap('<div class="autopic-tag-img-wrapper"></div>');
-        const $controls = buildTagControls(mesId, title);
+        const $controls = buildTagControls(mesId, effectiveTitle);
         $img.after($controls);
     });
 }
