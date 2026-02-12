@@ -30,11 +30,29 @@ const _rerollInProgress = new Set();
 /** 메시지별 영구 MutationObserver 맵 — key: mesId(string), value: MutationObserver */
 const _permanentObservers = new Map();
 
-/** 리롤 가드 해제 타임아웃 (ms) - 다른 확장의 렌더링이 완료될 충분한 시간 */
+/** Reroll guard timeout (ms) - sufficient time for other extensions to complete rendering */
 const REROLL_GUARD_TIMEOUT_MS = 2000;
 
-/** MutationObserver 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
+/** MutationObserver debounce time (ms) - wait time after DOM change detection */
 const MUTATION_DEBOUNCE_MS = 300;
+
+/** Number of messages to process in each batch during initialization - prevents UI blocking */
+const INIT_BATCH_SIZE = 50;
+
+/** Delay between batches during initialization (ms) - performance optimization */
+const INIT_BATCH_DELAY_MS = 100;
+
+/** Delay between processing each message within a batch (ms) - maintains UI responsiveness */
+const INIT_MESSAGE_DELAY_MS = 5;
+
+/** IntersectionObserver threshold - percentage of element visibility to trigger */
+const SCROLL_OBSERVER_THRESHOLD = 0.1;
+
+/** IntersectionObserver rootMargin - viewport expansion area */
+const SCROLL_OBSERVER_ROOT_MARGIN = '50px';
+
+/** Global reroll guard debounce time (ms) - wait time after DOM change detection */
+const GLOBAL_GUARD_DEBOUNCE_MS = 150;
 
 /**
  * HTML 속성 값 안전 탈출
@@ -1816,19 +1834,234 @@ async function attachTagControls(mesId) {
     });
 }
 /**
- * 모든 메시지를 검사하여 버튼이 누락된 곳에 부착
+ * Checks all messages and attaches missing buttons and tag controls.
+ * Processes entire chat history (not just last 10 messages) to ensure
+ * all messages have reroll buttons and tag controls attached.
  */
 const initializeAllTagControls = () => {
     const context = getContext();
     if (context && context.chat) {
         const chatLength = context.chat.length;
-        const startIndex = Math.max(0, chatLength - 10);
         
-        for (let i = startIndex; i < chatLength; i++) {
-            setTimeout(() => attachTagControls(i), (i - startIndex) * 10);
+        // Process messages in batches to prevent UI blocking
+        for (let batchStart = 0; batchStart < chatLength; batchStart += INIT_BATCH_SIZE) {
+            const batchEnd = Math.min(batchStart + INIT_BATCH_SIZE, chatLength);
+            
+            setTimeout(() => {
+                for (let i = batchStart; i < batchEnd; i++) {
+                    // Stagger each message slightly to maintain UI responsiveness
+                    setTimeout(() => {
+                        attachTagControls(i);
+                        addRerollButtonToMessage(i);
+                        addMobileToggleToMessage(i);
+                        attachSwipeRerollListeners(i);
+                    }, (i - batchStart) * INIT_MESSAGE_DELAY_MS);
+                }
+            }, (batchStart / INIT_BATCH_SIZE) * INIT_BATCH_DELAY_MS);
         }
     }
 };
+
+/**
+ * Installs IntersectionObserver-based lazy attachment for reroll buttons.
+ * Automatically attaches missing controls when messages scroll into viewport.
+ * This handles older messages that weren't visible during initial load.
+ */
+function installScrollRerollAttacher() {
+    let intersectionObserver = null;
+    const observedElements = new Set();
+    const processedMessages = new Set();
+    
+    // Create IntersectionObserver instance
+    const createObserver = () => {
+        if (intersectionObserver) return intersectionObserver;
+        
+        intersectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const $mes = $(entry.target);
+                    const mesIdStr = $mes.attr('mesid');
+                    
+                    if (!mesIdStr) return;
+                    
+                    const mesId = parseInt(mesIdStr, 10);
+                    if (isNaN(mesId)) return;
+                    
+                    // Skip if already processed and nothing is missing
+                    if (processedMessages.has(mesId)) {
+                        const hasAllControls = 
+                            $mes.find('.image-reroll-button').length > 0 &&
+                            $mes.find('.autopic-tag-controls').length > 0 &&
+                            $mes.find('.mobile-ui-toggle').length > 0;
+                        if (hasAllControls) return;
+                    }
+                    
+                    // Check if message has images
+                    const hasImages = $mes.find('.mes_img_controls, .mes_text img').length > 0;
+                    
+                    if (hasImages) {
+                        // Attach reroll button if missing
+                        const hasRerollBtn = $mes.find('.image-reroll-button').length > 0;
+                        if (!hasRerollBtn) {
+                            addRerollButtonToMessage(mesId);
+                            attachSwipeRerollListeners(mesId);
+                        }
+                        
+                        // Attach tag controls if missing
+                        const hasTagControls = $mes.find('.autopic-tag-controls').length > 0;
+                        if (!hasTagControls) {
+                            attachTagControls(mesId);
+                        }
+                        
+                        // Attach mobile toggle if missing
+                        const hasMobileToggle = $mes.find('.mobile-ui-toggle').length > 0;
+                        if (!hasMobileToggle) {
+                            addMobileToggleToMessage(mesId);
+                        }
+                        
+                        // Mark as processed
+                        processedMessages.add(mesId);
+                    }
+                }
+            });
+        }, {
+            threshold: SCROLL_OBSERVER_THRESHOLD,
+            rootMargin: SCROLL_OBSERVER_ROOT_MARGIN
+        });
+        
+        return intersectionObserver;
+    };
+    
+    // Add all .mes elements to observation
+    const observeAllMessages = () => {
+        const observer = createObserver();
+        
+        $('.mes').each(function() {
+            const mesElement = this;
+            if (!observedElements.has(mesElement)) {
+                observer.observe(mesElement);
+                observedElements.add(mesElement);
+            }
+        });
+    };
+    
+    // MutationObserver to detect newly added .mes elements
+    const chatContainer = document.querySelector('#chat');
+    if (chatContainer) {
+        const mutationObserver = new MutationObserver((mutations) => {
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const $node = $(node);
+                        
+                        // When .mes element is added directly
+                        if ($node.hasClass('mes')) {
+                            const observer = createObserver();
+                            if (!observedElements.has(node)) {
+                                observer.observe(node);
+                                observedElements.add(node);
+                            }
+                        }
+                        
+                        // When .mes element is added as a child
+                        $node.find('.mes').each(function() {
+                            const observer = createObserver();
+                            if (!observedElements.has(this)) {
+                                observer.observe(this);
+                                observedElements.add(this);
+                            }
+                        });
+                    }
+                });
+            });
+        });
+        
+        mutationObserver.observe(chatContainer, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // Start initial observation
+    observeAllMessages();
+}
+
+/**
+ * Installs global reroll button guard using MutationObserver.
+ * Monitors DOM changes for .mes_img_controls and automatically re-attaches
+ * missing reroll buttons when detected. Provides failsafe layer against
+ * button loss from DOM manipulations by other extensions.
+ */
+function installGlobalRerollGuard() {
+    const chatContainer = document.querySelector('#chat');
+    if (!chatContainer) return;
+    
+    let debounceTimer = null;
+    
+    const checkAndAttachRerollButtons = () => {
+        // Find all .mes_img_controls and check for reroll buttons
+        $('.mes_img_controls').each(function() {
+            const $controls = $(this);
+            
+            // Attach reroll button if missing
+            if (!$controls.find('.image-reroll-button').length) {
+                const $mes = $controls.closest('.mes');
+                const mesIdStr = $mes.attr('mesid');
+                
+                if (mesIdStr) {
+                    const mesId = parseInt(mesIdStr, 10);
+                    if (!isNaN(mesId)) {
+                        addRerollButtonToMessage(mesId);
+                        attachSwipeRerollListeners(mesId);
+                    }
+                }
+            }
+        });
+    };
+    
+    const mutationObserver = new MutationObserver((mutations) => {
+        let shouldCheck = false;
+        
+        for (const mutation of mutations) {
+            // Detect changes to .mes_img_controls or .mes_media_container
+            if (mutation.target.classList) {
+                if (mutation.target.classList.contains('mes_img_controls') ||
+                    mutation.target.classList.contains('mes_media_container') ||
+                    mutation.target.classList.contains('mes_text')) {
+                    shouldCheck = true;
+                    break;
+                }
+            }
+            
+            // Check added nodes
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const $node = $(node);
+                    if ($node.hasClass('mes_img_controls') || 
+                        $node.hasClass('mes_media_container') ||
+                        $node.find('.mes_img_controls, .mes_media_container').length > 0) {
+                        shouldCheck = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (shouldCheck) break;
+        }
+        
+        if (shouldCheck) {
+            // Apply debounce for performance
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(checkAndAttachRerollButtons, GLOBAL_GUARD_DEBOUNCE_MS);
+        }
+    });
+    
+    mutationObserver.observe(chatContainer, {
+        childList: true,
+        subtree: true,
+        attributes: false
+    });
+}
 
 eventSource.on(event_types.CHAT_COMPLETED, () => {
     initializeAllTagControls();
@@ -1845,3 +2078,9 @@ eventSource.on(event_types.CHAT_CHANGED, () => {
     renderCharacterPrompts();
     initializeAllTagControls();
 });
+
+// Install scroll-based lazy attachment
+installScrollRerollAttacher();
+
+// Install global reroll button guard
+installGlobalRerollGuard();
