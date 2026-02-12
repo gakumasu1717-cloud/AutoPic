@@ -1062,13 +1062,13 @@ $(function () {
                     message.extra.title = match[1];
                 }
             }
-            // 비동기 마크다운 렌더링 완료를 기다린 후 컨트롤 부착
-            setTimeout(() => {
+            // MutationObserver로 비동기 마크다운 렌더링 완료를 감지한 후 컨트롤 부착
+            waitForMesTextStable(mesId, () => {
                 addRerollButtonToMessage(mesId);
                 addMobileToggleToMessage(mesId);
                 attachSwipeRerollListeners(mesId);
                 attachTagControls(mesId);
-            }, 350);
+            });
         });
 
         eventSource.on(event_types.CHAT_CHANGED, () => {
@@ -1440,22 +1440,13 @@ async function handleReroll(mesId, currentPrompt) {
                     // 3. 다른 확장을 위해 이벤트는 유지 (fire-and-forget)
                     eventSource.emit(event_types.MESSAGE_UPDATED, mesId);
 
-                    // 4. [핵심] updateMessageBlock 내부의 비동기 마크다운 렌더링이
-                    //    완료된 뒤에 컨트롤을 부착해야 하므로, 여러 타이밍에 시도
-                    const reattachControls = () => {
+                    // 4. [핵심] MutationObserver로 비동기 마크다운 렌더링 완료를 감지한 후 컨트롤 부착
+                    waitForMesTextStable(mesId, () => {
                         attachTagControls(mesId);
                         addRerollButtonToMessage(mesId);
                         addMobileToggleToMessage(mesId);
                         attachSwipeRerollListeners(mesId);
-                    };
-                    // 즉시 시도 (동기 렌더링인 경우)
-                    requestAnimationFrame(() => {
-                        reattachControls();
-                        // 이중 rAF: 비동기 렌더링이 다음 프레임까지 걸리는 경우
-                        requestAnimationFrame(() => reattachControls());
                     });
-                    // 안전장치: 마크다운 렌더러가 느린 경우
-                    setTimeout(() => reattachControls(), 300);
 
                     toastr.success("이미지가 교체되었습니다.");
                 } else {
@@ -1562,17 +1553,13 @@ eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
                 
                 eventSource.emit(event_types.MESSAGE_UPDATED, currentIdx);
                 
-                const reattachControls = () => {
+                // MutationObserver로 비동기 마크다운 렌더링 완료를 감지한 후 컨트롤 부착
+                waitForMesTextStable(currentIdx, () => {
                     attachTagControls(currentIdx);
                     addRerollButtonToMessage(currentIdx);
                     addMobileToggleToMessage(currentIdx);
                     attachSwipeRerollListeners(currentIdx);
-                };
-                requestAnimationFrame(() => {
-                    reattachControls();
-                    requestAnimationFrame(() => reattachControls());
                 });
-                setTimeout(() => reattachControls(), 300);
                 
                 toastr.success(`총 ${total}개의 이미지 생성 및 저장 완료!`);
             }
@@ -1582,6 +1569,53 @@ eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
         }
     }, 200);
 });
+
+/**
+ * .mes_text의 DOM 변경이 안정화될 때까지 기다린 후 콜백 실행.
+ * updateMessageBlock() 내부의 비동기 마크다운 렌더링이 .mes_text innerHTML을
+ * 교체하는 시점을 정확히 잡기 위해 MutationObserver를 사용.
+ * 
+ * 동작: childList/subtree 변경이 감지된 후 debounce(200ms) 동안 
+ *       추가 변경이 없으면 "안정화"로 판정하고 콜백 실행.
+ *       최대 3초 후에는 타임아웃으로 강제 실행.
+ */
+function waitForMesTextStable(mesId, callback) {
+    const $mesBlock = $(`.mes[mesid="${mesId}"]`);
+    const mesText = $mesBlock.find('.mes_text')[0];
+    
+    if (!mesText) {
+        // DOM에 .mes_text가 없으면 fallback
+        setTimeout(callback, 500);
+        return;
+    }
+
+    let debounceTimer = null;
+    let resolved = false;
+
+    const resolve = () => {
+        if (resolved) return;
+        resolved = true;
+        observer.disconnect();
+        clearTimeout(fallbackTimer);
+        clearTimeout(debounceTimer);
+        // 한 프레임 더 기다려서 브라우저 페인트 완료 보장
+        requestAnimationFrame(() => callback());
+    };
+
+    const observer = new MutationObserver(() => {
+        // DOM 변경이 감지될 때마다 debounce 리셋
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(resolve, 200);
+    });
+
+    observer.observe(mesText, { childList: true, subtree: true, characterData: true });
+
+    // 최대 3초 타임아웃 (마크다운 렌더링이 아무리 느려도)
+    const fallbackTimer = setTimeout(resolve, 3000);
+
+    // 이미 렌더링이 끝난 상태(동기적으로 완료된 경우)를 위한 초기 debounce
+    debounceTimer = setTimeout(resolve, 200);
+}
 
 /**
  * 컨트롤 HTML 생성을 별도 함수로 분리 (중복 제거)
