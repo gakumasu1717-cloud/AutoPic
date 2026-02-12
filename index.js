@@ -23,6 +23,13 @@ const INSERT_TYPE = {
     REPLACE: 'replace',
 };
 
+/** handleReroll 내부에서 emit한 MESSAGE_UPDATED가 자기 자신의 리스너를 
+ *  중복 실행하는 것을 방지하기 위한 가드 */
+const _rerollInProgress = new Set();
+
+/** 메시지별 영구 MutationObserver 맵 — key: mesId(string), value: MutationObserver */
+const _permanentObservers = new Map();
+
 /**
  * HTML 속성 값 안전 탈출
  */
@@ -1051,6 +1058,11 @@ $(function () {
         });
 
         eventSource.on(event_types.MESSAGE_UPDATED, (mesId) => {
+            // handleReroll이 진행 중이면 중복 실행 방지
+            if (_rerollInProgress.has(String(mesId))) {
+                return;
+            }
+            
             const context = getContext();
             const message = context.chat[mesId];
             if (message && !message.is_user && !message.extra?.title) {
@@ -1408,15 +1420,23 @@ async function handleReroll(mesId, currentPrompt) {
                 if (typeof resultUrl === 'string' && !resultUrl.startsWith('Error')) {
                     const currentInsertType = extension_settings[extensionName].insertType;
 
-                    // [핵심 수정] 태그 치환 모드일 때만 본문(message.mes)을 수정함
+                    // 가드 설정 — 자기 자신의 MESSAGE_UPDATED 리스너 중복 실행 방지
+                    _rerollInProgress.add(String(mesId));
+
                     if (currentInsertType === INSERT_TYPE.REPLACE && targetItem.originalTag) {
+                        // REPLACE 모드: 본문 수정 + updateMessageBlock 필수
                         const idMatch = targetItem.originalTag.match(/data-autopic-id="([^"]*)"/);
-                        const idAttr = idMatch ? ` data-autopic-id="${idMatch[1]}"` : ` data-autopic-id="tag-${Date.now()}"`;
+                        const idAttr = idMatch 
+                            ? ` data-autopic-id="${idMatch[1]}"` 
+                            : ` data-autopic-id="tag-${Date.now()}"`;
                         const newTag = `<img src="${escapeHtmlAttribute(resultUrl)}"${idAttr} title="${escapeHtmlAttribute(finalPrompt.trim())}" alt="${escapeHtmlAttribute(finalPrompt.trim())}">`;
                         message.mes = message.mes.replace(targetItem.originalTag, newTag);
+                        
+                        updateMessageBlock(mesId, message);
+                        appendMediaToMessage(message, $(`.mes[mesid="${mesId}"]`));
                     } 
-                    // [핵심 수정] 그 외(INLINE 등) 모드에서는 본문은 절대 건드리지 않고 갤러리(extra)만 수정
                     else {
+                        // INLINE 모드: updateMessageBlock을 호출하지 않고 갤러리(extra)만 수정 + DOM 직접 갱신
                         if (!message.extra) message.extra = {};
                         if (!Array.isArray(message.extra.image_swipes)) message.extra.image_swipes = [];
                         
@@ -1428,24 +1448,30 @@ async function handleReroll(mesId, currentPrompt) {
                         message.extra.image = resultUrl;
                         message.extra.title = finalPrompt.trim();
                         message.extra.inline_image = true;
+                        
+                        // DOM 직접 갱신 (updateMessageBlock 생략)
+                        appendMediaToMessage(message, $(`.mes[mesid="${mesId}"]`));
                     }
 
-                    // 1. 데이터 + DOM 업데이트 (둘 다 동기)
-                    updateMessageBlock(mesId, message);
-                    appendMediaToMessage(message, $(`.mes[mesid="${mesId}"]`));
-
-                    // 2. 채팅 저장
                     await context.saveChat();
 
-                    // 3. 다른 확장을 위해 이벤트는 유지 (fire-and-forget)
+                    // 다른 확장을 위해 이벤트 emit
                     eventSource.emit(event_types.MESSAGE_UPDATED, mesId);
 
-                    // 4. [핵심] MutationObserver로 비동기 마크다운 렌더링 완료를 감지한 후 컨트롤 부착
+                    // 영구 Observer 설치
+                    installPermanentObserver(mesId);
+
+                    // 현재 시점에서도 한 번 부착 시도
                     waitForMesTextStable(mesId, () => {
                         attachTagControls(mesId);
                         addRerollButtonToMessage(mesId);
                         addMobileToggleToMessage(mesId);
                         attachSwipeRerollListeners(mesId);
+                        
+                        // 가드 해제 (충분한 딜레이 후)
+                        setTimeout(() => {
+                            _rerollInProgress.delete(String(mesId));
+                        }, 2000);
                     });
 
                     toastr.success("이미지가 교체되었습니다.");
@@ -1453,6 +1479,7 @@ async function handleReroll(mesId, currentPrompt) {
                     toastr.error("생성 실패: SD 익스텐션 응답 확인 필요");
                 }
             } catch (e) { 
+                _rerollInProgress.delete(String(mesId));
                 console.error(e);
                 toastr.error("이미지 생성 중 오류 발생."); 
             }
@@ -1539,26 +1566,34 @@ eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
             if (hasChanged) {
                 message.extra.title = lastPromptUsed;
 
+                _rerollInProgress.add(String(currentIdx));
+
                 if (insertType === INSERT_TYPE.INLINE) {
                     message.extra.image = lastImageResult; 
                     message.extra.inline_image = true;
                     appendMediaToMessage(message, messageElement);
+                    // INLINE 모드에서는 updateMessageBlock 생략
                 } 
                 else if (insertType === INSERT_TYPE.REPLACE) {
                     message.mes = updatedMes;
+                    updateMessageBlock(currentIdx, message);
                 }
                 
-                updateMessageBlock(currentIdx, message);
                 await context.saveChat();
                 
                 eventSource.emit(event_types.MESSAGE_UPDATED, currentIdx);
                 
-                // MutationObserver로 비동기 마크다운 렌더링 완료를 감지한 후 컨트롤 부착
+                installPermanentObserver(currentIdx);
+                
                 waitForMesTextStable(currentIdx, () => {
                     attachTagControls(currentIdx);
                     addRerollButtonToMessage(currentIdx);
                     addMobileToggleToMessage(currentIdx);
                     attachSwipeRerollListeners(currentIdx);
+                    
+                    setTimeout(() => {
+                        _rerollInProgress.delete(String(currentIdx));
+                    }, 2000);
                 });
                 
                 toastr.success(`총 ${total}개의 이미지 생성 및 저장 완료!`);
@@ -1642,6 +1677,54 @@ function looksLikeAutopicImage(title) {
            title.includes('indoors') ||
            title.includes('outdoors') ||
            title.split(',').length > 3;
+}
+
+/**
+ * 해당 메시지의 .mes_text에 영구 MutationObserver를 설치.
+ * DOM이 교체될 때마다 AutoPic 래퍼/컨트롤이 사라졌는지 체크하고 재부착.
+ * 이미 설치된 경우 중복 설치하지 않음.
+ */
+function installPermanentObserver(mesId) {
+    const key = String(mesId);
+    
+    if (_permanentObservers.has(key)) return;
+    
+    const $mesBlock = $(`.mes[mesid="${mesId}"]`);
+    const mesText = $mesBlock.find('.mes_text')[0];
+    if (!mesText) return;
+    
+    let debounceTimer = null;
+    
+    const observer = new MutationObserver(() => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const context = getContext();
+            const message = context.chat[mesId];
+            if (!message || message.is_user) return;
+            
+            const $images = $mesBlock.find('.mes_text img');
+            const hasUnwrappedAutopicImg = $images.toArray().some(img => {
+                const $img = $(img);
+                if ($img.parent().hasClass('autopic-tag-img-wrapper')) return false;
+                const src = $img.attr('src') || '';
+                const title = $img.attr('title') || '';
+                const hasId = $img.attr('data-autopic-id');
+                return hasId || 
+                       (message.mes && message.mes.includes(src)) || 
+                       (title && looksLikeAutopicImage(title));
+            });
+            
+            if (hasUnwrappedAutopicImg) {
+                attachTagControls(mesId);
+                addRerollButtonToMessage(mesId);
+                addMobileToggleToMessage(mesId);
+                attachSwipeRerollListeners(mesId);
+            }
+        }, 300);
+    });
+    
+    observer.observe(mesText, { childList: true, subtree: true });
+    _permanentObservers.set(key, observer);
 }
 
 async function attachTagControls(mesId) {
