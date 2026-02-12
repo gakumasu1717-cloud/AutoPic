@@ -1929,7 +1929,7 @@ function installScrollRerollAttacher() {
         });
     };
     
-    // MutationObserver로 새로 추가되는 .mes 요소 감지
+    // MutationObserver to detect newly added .mes elements
     const chatContainer = document.querySelector('#chat');
     if (chatContainer) {
         const mutationObserver = new MutationObserver((mutations) => {
@@ -1938,7 +1938,7 @@ function installScrollRerollAttacher() {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         const $node = $(node);
                         
-                        // .mes 요소가 직접 추가된 경우
+                        // When .mes element is added directly
                         if ($node.hasClass('mes')) {
                             const observer = createObserver();
                             if (!observedElements.has(node)) {
@@ -1947,7 +1947,7 @@ function installScrollRerollAttacher() {
                             }
                         }
                         
-                        // .mes 요소가 자식으로 추가된 경우
+                        // When .mes element is added as a child
                         $node.find('.mes').each(function() {
                             const observer = createObserver();
                             if (!observedElements.has(this)) {
@@ -1966,7 +1966,7 @@ function installScrollRerollAttacher() {
         });
     }
     
-    // 초기 관찰 시작
+    // Start initial observation
     observeAllMessages();
 }
 
@@ -2060,8 +2060,8 @@ eventSource.on(event_types.CHAT_CHANGED, () => {
     initializeAllTagControls();
 });
 
-// 스크롤 기반 lazy attachment 설치
+// Install scroll-based lazy attachment
 installScrollRerollAttacher();
 
-// 전역 리롤 버튼 가드 설치
+// Install global reroll button guard
 installGlobalRerollGuard();
