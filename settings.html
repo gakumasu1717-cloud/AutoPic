@@ -1,0 +1,335 @@
+<div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b data-i18n="Image Auto Generation" style="color: #4a90e2;">오토픽:이미지 자동 생성</b>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content" style="padding: 15px; background-color: #1a1a1c; border-radius: 0 0 8px 8px; color: #ffffff;">
+        
+        <div class="image-gen-nav-container">
+            <div class="image-gen-nav-item active" data-tab="tab-gen-general">⚙️ 기본 설정</div>
+            <div class="image-gen-nav-item" data-tab="tab-gen-templates">🎨 프롬프트 템플릿</div>
+            <div class="image-gen-nav-item" data-tab="tab-gen-linking">🔗 캐릭터 연동</div>
+        </div>
+        
+        <div id="tab-gen-general" class="image-gen-tab-content active">
+            <div class="image-gen-card">
+                <h3 class="gen-section-title">🎨 테마 설정</h3>
+                <div class="theme-selection-container">
+                    <div class="theme-dot dark active" data-theme="dark" title="다크"></div>
+                    <div class="theme-dot light" data-theme="light" title="라이트"></div>
+                    <div class="theme-dot pink" data-theme="pink" title="벚꽃 핑크"></div>
+                </div>
+            </div>
+
+            <div class="image-gen-card">
+                <h3 class="gen-section-title">작동 방식</h3>
+                <div class="flex-container flexnowrap margin-bottom-15" style="align-items: center; gap: 20px;">
+                    <label for="image_generation_insert_type" style="flex-shrink: 0; min-width: 120px;">이미지 삽입 유형</label>
+                    <select id="image_generation_insert_type" class="gen-custom-input flex1">
+                        <option value="inline">현재 메시지에 삽입</option>
+                        <option value="replace">태그 치환 모드</option>
+                        <option value="new">새 메시지로 생성</option>
+                        <option value="disabled">사용 안 함</option>
+                    </select>
+                </div>
+                <div class="flex-container flexnowrap" style="margin-top: 10px;">
+                    <label class="gen-checkbox-label" for="prompt_injection_enabled">
+                        <input type="checkbox" id="prompt_injection_enabled">
+                        <span>프롬프트 주입 활성화</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="image-gen-card">
+                <h3 class="gen-section-title">고급 인젝션 설정</h3>
+                <div style="margin-bottom: 25px;">
+                    <label style="display:block; margin-bottom:5px; margin-top:5px; font-size:0.85rem; color: #cccccc; font-weight: bold;">추출 정규식 (Regex)</label>
+                    <textarea id="prompt_injection_regex" class="gen-custom-input" rows="2" placeholder="예: /<pic[^>]*\sprompt=([^>]*?)>/g"></textarea>
+                </div>
+                <div class="flex-container flexnowrap margin-bottom-15" style="align-items: center; gap: 20px;">
+                    <label style="flex-shrink: 0; min-width: 120px;">주입 위치</label>
+                    <select id="prompt_injection_position" class="gen-custom-input flex1">
+                        <option value="deep_system">System (권장)</option>
+                        <option value="deep_user">User</option>
+                        <option value="deep_assistant">AI Assistant</option>
+                    </select>
+                </div>
+                <div class="flex-container flexnowrap" style="align-items: center; gap: 20px;">
+                    <label style="flex-shrink: 0; min-width: 120px;">주입 깊이 (Depth)</label>
+                    <input id="prompt_injection_depth" class="gen-custom-input" type="number" min="0" max="100" style="width: 80px;">
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-gen-templates" class="image-gen-tab-content">
+			<div class="image-gen-card">
+				<h3 class="gen-section-title">템플릿 관리</h3>
+				<p style="font-size: 0.82rem; color: #ff9f43; margin-top: 9px; margin-bottom: 20px; line-height: 1.4;">
+					<i class="fa-solid fa-circle-info"></i> <b>참고:</b> 수정 후 <b>저장</b> 버튼을 누르면 기존 내용에 덮어씌워집니다. <b>+</b> 버튼은 새 템플릿을 적기 위해 창을 비웁니다.
+				</p>
+				
+				<div class="flex-container flexnowrap" style="align-items: center; margin-bottom: 25px; gap: 8px; margin-top: 10px;">
+					<select id="prompt_preset_select" class="gen-custom-input" style="flex: 1;">
+						<option value="" id="preset_default_option">-- 템플릿 선택 --</option>
+					</select>
+                    <button id="add_new_prompt_preset" class="gen-btn gen-btn-dark" title="새 템플릿 추가 (입력창 비우기)">
+						<i class="fa-solid fa-plus"></i>
+					</button>
+                    <button id="rename_prompt_preset" class="gen-btn gen-btn-gray" title="이름 수정">
+						<i class="fa-solid fa-pen-to-square"></i>
+					</button>
+					<button id="save_prompt_preset" class="gen-btn gen-btn-blue" title="저장 (덮어씌우기/새로저장)">
+						<i class="fa-solid fa-floppy-disk"></i>
+					</button>
+					<button id="delete_prompt_preset" class="gen-btn gen-btn-red" title="삭제">
+						<i class="fa-solid fa-trash"></i>
+					</button>
+				</div>
+				<div>
+					<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+					<label style="font-size:0.85rem; font-weight:bold; color: #4a90e2; margin:0;">프롬프트 내용</label>
+						<span id="prompt_edit_status" style="font-size:0.75rem; padding: 2px 8px; border-radius: 4px; background: var(--ap-bg-item); color: var(--ap-text-vague);">
+							전역 설정 편집 중
+						</span>
+					</div>
+					<textarea id="prompt_injection_text" class="gen-custom-input" rows="10" placeholder="AI에게 이미지 태그 생성을 지시하는 프롬프트를 입력하세요."></textarea>
+					<div id="character_prompts_section" style="margin-top: 25px; border-top: 1px dashed var(--ap-border); padding-top: 20px;">
+						<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+							<label style="font-size:0.85rem; font-weight:bold; color: var(--ap-accent);">👤 캐릭터 외형 프롬프트 ({autopic_char1~6})</label>
+							<button id="add_char_prompt_btn" class="gen-btn gen-btn-dark" style="padding: 4px 10px; font-size: 0.75rem;">
+								<i class="fa-solid fa-plus"></i> 추가 (최대 6명)
+							</button>
+						</div>
+						<div id="char_prompts_list" style="display: flex; flex-direction: column; gap: 15px;">
+							</div>
+						<p style="font-size: 0.75rem; color: var(--ap-text-vague); margin-top: 10px; line-height: 1.4;">
+							* 토글이 켜져 있는 캐릭터의 프롬프트만 {autopic_charN} 위치에 치환되어 들어갑니다. 꺼져 있는 캐릭터는 프롬프트에서 해당 자리가 빈 칸으로 처리되어 AI가 인식하지 못하게 됩니다.
+						</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="tab-gen-linking" class="image-gen-tab-content">
+			<div class="image-gen-card">
+				<h3 class="gen-section-title">🔗 캐릭터별 프롬프트 연동</h3>
+				<p style="font-size: 0.85rem; color: var(--ap-text-vague); margin-bottom: 15px; line-height: 1.4;">
+					특정 캐릭터에게 특화된 프롬프트 템플릿을 지정할 수 있습니다.
+				</p>
+				
+				<div style="background: var(--ap-bg-input); padding: 15px; border-radius: 10px; border: 1px solid var(--ap-border); margin-bottom: 15px;">
+					<div id="gen-char-link-info-area" style="font-size: 0.9rem; line-height: 1.6; color: var(--ap-text);">
+						캐릭터 정보를 불러오는 중...
+					</div>
+				</div>
+
+				<div class="flex-container flexGap10">
+					<button id="gen-save-char-link-btn" class="gen-btn gen-btn-blue flex2" style="height: 42px; font-weight: bold;">
+						<i class="fa-solid fa-link"></i> 현재 캐릭터에 연동
+					</button>
+					<button id="gen-remove-char-link-btn" class="gen-btn gen-btn-gray flex1" style="height: 42px;">
+						연동 해제
+					</button>
+				</div>
+				<div style="margin-top: 25px; border-top: 1px solid var(--ap-border); padding-top: 20px;">
+					<h3 class="gen-section-title">💾 저장된 데이터 관리</h3>
+					<p style="font-size: 0.8rem; color: var(--ap-text-vague); margin-bottom: 12px;">
+						캐릭터별로 저장된 외형 프롬프트 및 연동 정보를 관리합니다. 삭제된 캐릭터의 잔여 데이터도 여기서 지울 수 있습니다.
+					</p>
+					<button id="gen-open-storage-mgmt-btn" class="gen-btn gen-btn-dark" style="width: 100%; justify-content: center; background: var(--ap-bg-input) !important;">
+						📂 저장된 캐릭터 데이터 목록 보기
+					</button>
+					<div id="gen-storage-mgmt-list-container" style="display: none; margin-top: 10px; max-height: 300px; overflow-y: auto; border: 1px solid var(--ap-border); border-radius: 8px; background: var(--ap-bg-input);">
+						<!-- 여기에 JS로 리스트 생성 -->
+					</div>
+				</div>
+
+				<div style="margin-top: 15px;">
+					<button id="gen-toggle-linked-list-btn" class="gen-btn gen-btn-dark" style="width: 100%; justify-content: center; background: var(--ap-bg-input) !important;">
+						📋 연동된 캐릭터 목록 확인
+					</button>
+					<div id="gen-linked-char-list-container" style="display: none; margin-top: 10px; max-height: 250px; overflow-y: auto; border: 1px solid var(--ap-border); border-radius: 8px; background: var(--ap-bg-input);">
+						<!-- 여기에 JS로 리스트 생성 -->
+					</div>
+				</div>
+			</div>
+		</div>
+
+    </div>
+</div>
+
+<style>
+/* 1. 테마별 색상 변수 정의 */
+#autopic_settings_container.theme-dark {
+    --ap-accent: #4a90e2;
+    --ap-bg-main: #1a1a1c;
+    --ap-bg-card: #252529;
+    --ap-bg-input: #121214;
+    --ap-bg-item: rgba(0, 0, 0, 0.2); /* 어두운 배경용 아이템 박스 */
+    --ap-text: #ffffff;
+    --ap-text-vague: #888888;
+    --ap-border: #333336;
+    --ap-input-border: #444448;
+}
+
+#autopic_settings_container.theme-light {
+    --ap-accent: #4a90e2;
+    --ap-bg-main: #f2f2f2;
+    --ap-bg-card: #ffffff;
+    --ap-bg-input: #f9f9f9;
+    --ap-bg-item: rgba(0, 0, 0, 0.05); /* 밝은 배경용 아이템 박스 */
+    --ap-text: #2c3e50;
+    --ap-text-vague: #7f8c8d;
+    --ap-border: #dcdde1;
+    --ap-input-border: #bdc3c7;
+}
+
+#autopic_settings_container.theme-pink {
+    --ap-accent: #ff85a2;
+    --ap-bg-main: #fff5f7;
+    --ap-bg-card: #ffffff;
+    --ap-bg-input: #fff0f3;
+    --ap-bg-item: #ffe4e9; /* 벚꽃핑크 테마에 어울리는 부드러운 분홍색 박스 */
+    --ap-text: #5d2a42;
+    --ap-text-vague: #a67c8e;
+    --ap-border: #ffcad4;
+    --ap-input-border: #ffb7c5;
+}
+
+/* 2. 캐릭터 외형 프롬프트 리스트 높이 제한 및 스크롤 */
+#char_prompts_list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    max-height: 500px; /* 높이 제한 약간 상향 */
+    overflow-y: auto;
+    padding-right: 8px;
+    border: 1px solid transparent;
+}
+
+/* 스크롤바 커스텀 */
+#char_prompts_list::-webkit-scrollbar {
+    width: 6px;
+}
+#char_prompts_list::-webkit-scrollbar-thumb {
+    background: var(--ap-border);
+    border-radius: 10px;
+}
+
+.char-prompt-input {
+    min-height: 60px; /* 기본 최소 높이 설정 */
+    resize: vertical; /* 사용자가 세로 크기를 조절할 수 있도록 허용 */
+    width: 100%;
+}
+
+
+/* 3. 연동된 캐릭터 목록 아이템 디자인 (UI 깨짐 수정) */
+.gen-linked-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--ap-border);
+    background-color: var(--ap-bg-card);
+    gap: 10px;
+}
+
+.gen-linked-item:last-child {
+    border-bottom: none;
+}
+
+.gen-linked-item:hover {
+    background-color: var(--ap-bg-input);
+}
+
+/* 나머지 기존 스타일 유지 */
+#autopic_settings_container .theme-selection-container { display: flex; gap: 15px; padding: 5px 0; padding-top: 10px; }
+#autopic_settings_container .theme-dot {
+    width: 16px; height: 16px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+#autopic_settings_container .theme-dot:hover { transform: scale(1.1); }
+#autopic_settings_container .theme-dot.active { border-color: var(--ap-accent); transform: scale(1.1); }
+#autopic_settings_container .theme-dot.dark { background-color: #1a1a1c; }
+#autopic_settings_container .theme-dot.light { background-color: #ffffff; border: 1px solid #ddd; }
+#autopic_settings_container .theme-dot.pink { background-color: #ffb7c5; }
+
+#autopic_settings_container .inline-drawer-content {
+    background-color: var(--ap-bg-main) !important;
+    color: var(--ap-text) !important;
+}
+
+#autopic_settings_container .image-gen-nav-container {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px; padding-bottom: 5px;
+    border-bottom: 2px solid var(--ap-border);
+}
+
+#autopic_settings_container .image-gen-nav-item {
+    padding: 10px 8px; cursor: pointer; font-weight: 600; 
+    color: var(--ap-text-vague); border-radius: 8px 8px 0 0; 
+    transition: all 0.2s ease; white-space: nowrap; font-size: 0.8rem; 
+    background-color: var(--ap-bg-card); flex: 1; min-width: 70px;
+    text-align: center; overflow: hidden; text-overflow: ellipsis; 
+}
+
+#autopic_settings_container .image-gen-nav-item:hover { background-color: var(--ap-border); color: var(--ap-text); }
+#autopic_settings_container .image-gen-nav-item.active { background-color: var(--ap-accent); color: #ffffff; }
+
+#autopic_settings_container .image-gen-card {
+    background-color: var(--ap-bg-card); padding: 22px; border-radius: 12px;
+    border: 1px solid var(--ap-border); margin-bottom: 20px;
+}
+
+#autopic_settings_container .gen-section-title {
+    font-size: 1.05rem; font-weight: bold; margin-bottom: 22px; color: var(--ap-accent);
+    display: flex; align-items: center; gap: 10px; border: none; margin-top: 0;
+}
+
+#autopic_settings_container .gen-section-title::after { content: ""; flex-grow: 1; height: 1px; background: var(--ap-border); }
+
+#autopic_settings_container .gen-custom-input {
+    background-color: var(--ap-bg-input) !important;
+    color: var(--ap-text) !important;
+    border: 1px solid var(--ap-input-border) !important;
+    border-radius: 8px !important; padding: 8px 12px !important;
+    font-size: 0.9rem !important; outline: none !important; box-sizing: border-box;
+	
+}
+
+#autopic_settings_container select.gen-custom-input {
+    appearance: none !important; -webkit-appearance: none !important;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23cccccc%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important; background-position: right 10px center !important;
+    background-size: 16px !important; padding-right: 40px !important;
+}
+
+#autopic_settings_container .gen-custom-input:focus { border-color: var(--ap-accent) !important; box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.3); }
+
+#autopic_settings_container .gen-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 0.85rem; transition: filter 0.2s, transform 0.1s; color: #ffffff !important;
+}
+
+#autopic_settings_container .gen-btn-blue { background-color: var(--ap-accent) !important; }
+#autopic_settings_container .gen-btn-red { background-color: #eb4d4b !important; }
+#autopic_settings_container .gen-btn-gray { background-color: #4b4b4e !important; }
+#autopic_settings_container .gen-btn-dark { background-color: var(--ap-bg-input) !important; border: 1px solid var(--ap-border) !important; color: var(--ap-text) !important; }
+
+#autopic_settings_container .gen-checkbox-label { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.95rem; color: var(--ap-text); }
+#autopic_settings_container .gen-checkbox-label input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; width: 20px; height: 20px;
+    border: 2px solid var(--ap-accent); border-radius: 4px; background-color: var(--ap-bg-input);
+    position: relative;
+}
+#autopic_settings_container .gen-checkbox-label input[type="checkbox"]:checked { background-color: var(--ap-accent); }
+#autopic_settings_container .gen-checkbox-label input[type="checkbox"]:checked::after { content: '✔'; position: absolute; color: white; font-size: 14px; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+#autopic_settings_container .image-gen-tab-content { display: none; }
+#autopic_settings_container .image-gen-tab-content.active { display: block; animation: fadeInGen 0.3s ease-out; }
+@keyframes fadeInGen { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media screen and (max-width: 500px) {
+    #autopic_settings_container .flex-container.flexnowrap { flex-wrap: wrap !important; gap: 8px !important; }
+    #autopic_settings_container .gen-custom-input { width: 100%; } /* !important 제거하여 수동 리사이징 우선권 부여 */
+}
+</style>
