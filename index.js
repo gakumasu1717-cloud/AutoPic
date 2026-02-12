@@ -36,6 +36,24 @@ const REROLL_GUARD_TIMEOUT_MS = 2000;
 /** MutationObserver 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
 const MUTATION_DEBOUNCE_MS = 300;
 
+/** 초기화 시 한 번에 처리할 메시지 개수 - UI 블로킹 방지 */
+const INIT_BATCH_SIZE = 50;
+
+/** 초기화 배치 간 딜레이 (ms) - 성능 최적화 */
+const INIT_BATCH_DELAY_MS = 100;
+
+/** 배치 내 각 메시지 처리 간 딜레이 (ms) - UI 응답성 유지 */
+const INIT_MESSAGE_DELAY_MS = 5;
+
+/** IntersectionObserver threshold - 요소가 몇 % 보일 때 트리거할지 */
+const SCROLL_OBSERVER_THRESHOLD = 0.1;
+
+/** IntersectionObserver rootMargin - viewport 확장 영역 */
+const SCROLL_OBSERVER_ROOT_MARGIN = '50px';
+
+/** 전역 리롤 가드 디바운스 시간 (ms) - DOM 변경 감지 후 대기 시간 */
+const GLOBAL_GUARD_DEBOUNCE_MS = 150;
+
 /**
  * HTML 속성 값 안전 탈출
  */
@@ -1816,46 +1834,44 @@ async function attachTagControls(mesId) {
     });
 }
 /**
- * 모든 메시지를 검사하여 버튼이 누락된 곳에 부착
+ * Checks all messages and attaches missing buttons and tag controls.
+ * Processes entire chat history (not just last 10 messages) to ensure
+ * all messages have reroll buttons and tag controls attached.
  */
 const initializeAllTagControls = () => {
     const context = getContext();
     if (context && context.chat) {
         const chatLength = context.chat.length;
-        // 전체 채팅 순회 (최근 10개 제한 제거)
-        const startIndex = 0;
         
-        // 성능을 위해 배치 처리 (한 번에 50개씩 처리)
-        const batchSize = 50;
-        const batchDelay = 100; // 각 배치 간 딜레이 (ms)
-        
-        for (let batchStart = startIndex; batchStart < chatLength; batchStart += batchSize) {
-            const batchEnd = Math.min(batchStart + batchSize, chatLength);
+        // Process messages in batches to prevent UI blocking
+        for (let batchStart = 0; batchStart < chatLength; batchStart += INIT_BATCH_SIZE) {
+            const batchEnd = Math.min(batchStart + INIT_BATCH_SIZE, chatLength);
             
             setTimeout(() => {
                 for (let i = batchStart; i < batchEnd; i++) {
-                    // 각 메시지마다 소량의 딜레이로 UI 블로킹 방지
+                    // Stagger each message slightly to maintain UI responsiveness
                     setTimeout(() => {
                         attachTagControls(i);
                         addRerollButtonToMessage(i);
                         addMobileToggleToMessage(i);
                         attachSwipeRerollListeners(i);
-                    }, (i - batchStart) * 5);
+                    }, (i - batchStart) * INIT_MESSAGE_DELAY_MS);
                 }
-            }, (batchStart / batchSize) * batchDelay);
+            }, (batchStart / INIT_BATCH_SIZE) * INIT_BATCH_DELAY_MS);
         }
     }
 };
 
 /**
- * IntersectionObserver를 사용하여 메시지가 viewport에 보일 때 리롤 버튼을 자동 부착
- * 스크롤로 올라간 과거 메시지에 대한 lazy attachment 구현
+ * Installs IntersectionObserver-based lazy attachment for reroll buttons.
+ * Automatically attaches missing controls when messages scroll into viewport.
+ * This handles older messages that weren't visible during initial load.
  */
 function installScrollRerollAttacher() {
     let intersectionObserver = null;
     const observedElements = new Set();
     
-    // IntersectionObserver 생성
+    // Create IntersectionObserver instance
     const createObserver = () => {
         if (intersectionObserver) return intersectionObserver;
         
@@ -1867,24 +1883,24 @@ function installScrollRerollAttacher() {
                     
                     if (!mesId) return;
                     
-                    // 이미지가 있는지 확인
+                    // Check if message has images
                     const hasImages = $mes.find('.mes_img_controls, .mes_text img').length > 0;
                     
                     if (hasImages) {
-                        // 리롤 버튼이 없으면 부착
+                        // Attach reroll button if missing
                         const hasRerollBtn = $mes.find('.image-reroll-button').length > 0;
                         if (!hasRerollBtn) {
                             addRerollButtonToMessage(mesId);
                             attachSwipeRerollListeners(mesId);
                         }
                         
-                        // 태그 컨트롤이 없으면 부착
+                        // Attach tag controls if missing
                         const hasTagControls = $mes.find('.autopic-tag-controls').length > 0;
                         if (!hasTagControls) {
                             attachTagControls(mesId);
                         }
                         
-                        // 모바일 토글이 없으면 부착
+                        // Attach mobile toggle if missing
                         const hasMobileToggle = $mes.find('.mobile-ui-toggle').length > 0;
                         if (!hasMobileToggle) {
                             addMobileToggleToMessage(mesId);
@@ -1893,14 +1909,14 @@ function installScrollRerollAttacher() {
                 }
             });
         }, {
-            threshold: 0.1,
-            rootMargin: '50px'
+            threshold: SCROLL_OBSERVER_THRESHOLD,
+            rootMargin: SCROLL_OBSERVER_ROOT_MARGIN
         });
         
         return intersectionObserver;
     };
     
-    // 모든 .mes 요소를 관찰 대상에 추가
+    // Add all .mes elements to observation
     const observeAllMessages = () => {
         const observer = createObserver();
         
@@ -1955,8 +1971,10 @@ function installScrollRerollAttacher() {
 }
 
 /**
- * 전역 리롤 버튼 가드 - MutationObserver로 리롤 버튼 누락 방지
- * .mes_img_controls 관련 DOM 변경 시 리롤 버튼이 없으면 자동 재부착
+ * Installs global reroll button guard using MutationObserver.
+ * Monitors DOM changes for .mes_img_controls and automatically re-attaches
+ * missing reroll buttons when detected. Provides failsafe layer against
+ * button loss from DOM manipulations by other extensions.
  */
 function installGlobalRerollGuard() {
     const chatContainer = document.querySelector('#chat');
@@ -1965,11 +1983,11 @@ function installGlobalRerollGuard() {
     let debounceTimer = null;
     
     const checkAndAttachRerollButtons = () => {
-        // 모든 .mes_img_controls를 찾아서 리롤 버튼 확인
+        // Find all .mes_img_controls and check for reroll buttons
         $('.mes_img_controls').each(function() {
             const $controls = $(this);
             
-            // 리롤 버튼이 없으면 부착
+            // Attach reroll button if missing
             if (!$controls.find('.image-reroll-button').length) {
                 const $mes = $controls.closest('.mes');
                 const mesId = $mes.attr('mesid');
@@ -1986,7 +2004,7 @@ function installGlobalRerollGuard() {
         let shouldCheck = false;
         
         for (const mutation of mutations) {
-            // .mes_img_controls 또는 .mes_media_container 관련 변경 감지
+            // Detect changes to .mes_img_controls or .mes_media_container
             if (mutation.target.classList) {
                 if (mutation.target.classList.contains('mes_img_controls') ||
                     mutation.target.classList.contains('mes_media_container') ||
@@ -1996,7 +2014,7 @@ function installGlobalRerollGuard() {
                 }
             }
             
-            // 추가된 노드 확인
+            // Check added nodes
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     const $node = $(node);
@@ -2013,9 +2031,9 @@ function installGlobalRerollGuard() {
         }
         
         if (shouldCheck) {
-            // 디바운스 적용 (150ms)
+            // Apply debounce for performance
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(checkAndAttachRerollButtons, 150);
+            debounceTimer = setTimeout(checkAndAttachRerollButtons, GLOBAL_GUARD_DEBOUNCE_MS);
         }
     });
     
