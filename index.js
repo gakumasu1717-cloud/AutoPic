@@ -1822,13 +1822,209 @@ const initializeAllTagControls = () => {
     const context = getContext();
     if (context && context.chat) {
         const chatLength = context.chat.length;
-        const startIndex = Math.max(0, chatLength - 10);
+        // 전체 채팅 순회 (최근 10개 제한 제거)
+        const startIndex = 0;
         
-        for (let i = startIndex; i < chatLength; i++) {
-            setTimeout(() => attachTagControls(i), (i - startIndex) * 10);
+        // 성능을 위해 배치 처리 (한 번에 50개씩 처리)
+        const batchSize = 50;
+        const batchDelay = 100; // 각 배치 간 딜레이 (ms)
+        
+        for (let batchStart = startIndex; batchStart < chatLength; batchStart += batchSize) {
+            const batchEnd = Math.min(batchStart + batchSize, chatLength);
+            
+            setTimeout(() => {
+                for (let i = batchStart; i < batchEnd; i++) {
+                    // 각 메시지마다 소량의 딜레이로 UI 블로킹 방지
+                    setTimeout(() => {
+                        attachTagControls(i);
+                        addRerollButtonToMessage(i);
+                        addMobileToggleToMessage(i);
+                        attachSwipeRerollListeners(i);
+                    }, (i - batchStart) * 5);
+                }
+            }, (batchStart / batchSize) * batchDelay);
         }
     }
 };
+
+/**
+ * IntersectionObserver를 사용하여 메시지가 viewport에 보일 때 리롤 버튼을 자동 부착
+ * 스크롤로 올라간 과거 메시지에 대한 lazy attachment 구현
+ */
+function installScrollRerollAttacher() {
+    let intersectionObserver = null;
+    const observedElements = new Set();
+    
+    // IntersectionObserver 생성
+    const createObserver = () => {
+        if (intersectionObserver) return intersectionObserver;
+        
+        intersectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const $mes = $(entry.target);
+                    const mesId = $mes.attr('mesid');
+                    
+                    if (!mesId) return;
+                    
+                    // 이미지가 있는지 확인
+                    const hasImages = $mes.find('.mes_img_controls, .mes_text img').length > 0;
+                    
+                    if (hasImages) {
+                        // 리롤 버튼이 없으면 부착
+                        const hasRerollBtn = $mes.find('.image-reroll-button').length > 0;
+                        if (!hasRerollBtn) {
+                            addRerollButtonToMessage(mesId);
+                            attachSwipeRerollListeners(mesId);
+                        }
+                        
+                        // 태그 컨트롤이 없으면 부착
+                        const hasTagControls = $mes.find('.autopic-tag-controls').length > 0;
+                        if (!hasTagControls) {
+                            attachTagControls(mesId);
+                        }
+                        
+                        // 모바일 토글이 없으면 부착
+                        const hasMobileToggle = $mes.find('.mobile-ui-toggle').length > 0;
+                        if (!hasMobileToggle) {
+                            addMobileToggleToMessage(mesId);
+                        }
+                    }
+                }
+            });
+        }, {
+            threshold: 0.1,
+            rootMargin: '50px'
+        });
+        
+        return intersectionObserver;
+    };
+    
+    // 모든 .mes 요소를 관찰 대상에 추가
+    const observeAllMessages = () => {
+        const observer = createObserver();
+        
+        $('.mes').each(function() {
+            const mesElement = this;
+            if (!observedElements.has(mesElement)) {
+                observer.observe(mesElement);
+                observedElements.add(mesElement);
+            }
+        });
+    };
+    
+    // MutationObserver로 새로 추가되는 .mes 요소 감지
+    const chatContainer = document.querySelector('#chat');
+    if (chatContainer) {
+        const mutationObserver = new MutationObserver((mutations) => {
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const $node = $(node);
+                        
+                        // .mes 요소가 직접 추가된 경우
+                        if ($node.hasClass('mes')) {
+                            const observer = createObserver();
+                            if (!observedElements.has(node)) {
+                                observer.observe(node);
+                                observedElements.add(node);
+                            }
+                        }
+                        
+                        // .mes 요소가 자식으로 추가된 경우
+                        $node.find('.mes').each(function() {
+                            const observer = createObserver();
+                            if (!observedElements.has(this)) {
+                                observer.observe(this);
+                                observedElements.add(this);
+                            }
+                        });
+                    }
+                });
+            });
+        });
+        
+        mutationObserver.observe(chatContainer, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // 초기 관찰 시작
+    observeAllMessages();
+}
+
+/**
+ * 전역 리롤 버튼 가드 - MutationObserver로 리롤 버튼 누락 방지
+ * .mes_img_controls 관련 DOM 변경 시 리롤 버튼이 없으면 자동 재부착
+ */
+function installGlobalRerollGuard() {
+    const chatContainer = document.querySelector('#chat');
+    if (!chatContainer) return;
+    
+    let debounceTimer = null;
+    
+    const checkAndAttachRerollButtons = () => {
+        // 모든 .mes_img_controls를 찾아서 리롤 버튼 확인
+        $('.mes_img_controls').each(function() {
+            const $controls = $(this);
+            
+            // 리롤 버튼이 없으면 부착
+            if (!$controls.find('.image-reroll-button').length) {
+                const $mes = $controls.closest('.mes');
+                const mesId = $mes.attr('mesid');
+                
+                if (mesId) {
+                    addRerollButtonToMessage(mesId);
+                    attachSwipeRerollListeners(mesId);
+                }
+            }
+        });
+    };
+    
+    const mutationObserver = new MutationObserver((mutations) => {
+        let shouldCheck = false;
+        
+        for (const mutation of mutations) {
+            // .mes_img_controls 또는 .mes_media_container 관련 변경 감지
+            if (mutation.target.classList) {
+                if (mutation.target.classList.contains('mes_img_controls') ||
+                    mutation.target.classList.contains('mes_media_container') ||
+                    mutation.target.classList.contains('mes_text')) {
+                    shouldCheck = true;
+                    break;
+                }
+            }
+            
+            // 추가된 노드 확인
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const $node = $(node);
+                    if ($node.hasClass('mes_img_controls') || 
+                        $node.hasClass('mes_media_container') ||
+                        $node.find('.mes_img_controls, .mes_media_container').length > 0) {
+                        shouldCheck = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (shouldCheck) break;
+        }
+        
+        if (shouldCheck) {
+            // 디바운스 적용 (150ms)
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(checkAndAttachRerollButtons, 150);
+        }
+    });
+    
+    mutationObserver.observe(chatContainer, {
+        childList: true,
+        subtree: true,
+        attributes: false
+    });
+}
 
 eventSource.on(event_types.CHAT_COMPLETED, () => {
     initializeAllTagControls();
@@ -1845,3 +2041,9 @@ eventSource.on(event_types.CHAT_CHANGED, () => {
     renderCharacterPrompts();
     initializeAllTagControls();
 });
+
+// 스크롤 기반 lazy attachment 설치
+installScrollRerollAttacher();
+
+// 전역 리롤 버튼 가드 설치
+installGlobalRerollGuard();
